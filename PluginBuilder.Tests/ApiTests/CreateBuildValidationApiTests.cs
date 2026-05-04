@@ -57,6 +57,9 @@ public class CreateBuildValidationApiTests(ITestOutputHelper logs) : UnitTestBas
 
         // Assert
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+
+        var result = await response.Content.ReadAsStringAsync();
+        Assert.Contains("Manifest validation failed:", result);
     }
 
     [Fact]
@@ -77,11 +80,17 @@ public class CreateBuildValidationApiTests(ITestOutputHelper logs) : UnitTestBas
         await using var conn = await tester.GetService<DBConnectionFactory>().Open();
         await conn.NewPlugin(pluginSlug1, ownerId1);
 
+        var buildService = tester.GetService<BuildService>();
+        var actualIdentifier = await buildService.FetchIdentifierFromCsprojAsync(
+            ServerTester.RepoUrl,
+            ServerTester.GitRef,
+            ServerTester.PluginDir);
+
         await conn.ExecuteAsync(
             "UPDATE plugins SET identifier = @identifier WHERE slug = @slug",
             new
             {
-                identifier = "BTCPayServer.Plugins.TestPlugin",
+                identifier = actualIdentifier,
                 slug = pluginSlug1
             });
 
@@ -113,6 +122,9 @@ public class CreateBuildValidationApiTests(ITestOutputHelper logs) : UnitTestBas
 
         // Assert
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+
+        var result = await response.Content.ReadAsStringAsync();
+        Assert.Contains("does not belong to plugin slug", result);
     }
 
     private static void SetBasicAuth(HttpClient client, string email, string password)
