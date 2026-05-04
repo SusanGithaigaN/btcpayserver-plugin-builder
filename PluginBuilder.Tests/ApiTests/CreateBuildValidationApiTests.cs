@@ -1,5 +1,4 @@
 ﻿using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using Dapper;
 using Newtonsoft.Json;
@@ -34,8 +33,7 @@ public class CreateBuildValidationApiTests(ITestOutputHelper logs) : UnitTestBas
         await using var conn = await tester.GetService<DBConnectionFactory>().Open();
         await conn.NewPlugin(pluginSlug, ownerId);
 
-        var client = tester.CreateHttpClient();
-        SetBasicAuth(client, email, Password);
+        var client = tester.CreateHttpClient().SetBasicAuth(email, Password);
 
         var request = new CreateBuildRequest
         {
@@ -60,6 +58,10 @@ public class CreateBuildValidationApiTests(ITestOutputHelper logs) : UnitTestBas
 
         var result = await response.Content.ReadAsStringAsync();
         Assert.Contains("Manifest validation failed:", result);
+
+        Assert.False(await conn.ExecuteScalarAsync<bool>(
+            "SELECT EXISTS(SELECT 1 FROM builds WHERE plugin_slug = @pluginSlug)",
+            new { pluginSlug }));
     }
 
     [Fact]
@@ -94,10 +96,7 @@ public class CreateBuildValidationApiTests(ITestOutputHelper logs) : UnitTestBas
                 slug = pluginSlug1
             });
 
-        var client1 = tester.CreateHttpClient();
-        var client2 = tester.CreateHttpClient();
-        SetBasicAuth(client1, email1, Password);
-        SetBasicAuth(client2, email2, Password);
+        var client = tester.CreateHttpClient().SetBasicAuth(email2, Password);
 
         var pluginSlug2 = "second-plugin-" + Guid.NewGuid().ToString("N")[..8];
         await conn.NewPlugin(pluginSlug2, ownerId2);
@@ -116,7 +115,7 @@ public class CreateBuildValidationApiTests(ITestOutputHelper logs) : UnitTestBas
             Encoding.UTF8,
             MediaType);
 
-        var response = await client2.PostAsync(
+        var response = await client.PostAsync(
             $"/api/v1/plugins/{pluginSlug2}/builds",
             content);
 
@@ -125,11 +124,9 @@ public class CreateBuildValidationApiTests(ITestOutputHelper logs) : UnitTestBas
 
         var result = await response.Content.ReadAsStringAsync();
         Assert.Contains("does not belong to plugin slug", result);
-    }
 
-    private static void SetBasicAuth(HttpClient client, string email, string password)
-    {
-        var credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($"{email}:{password}"));
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+        Assert.False(await conn.ExecuteScalarAsync<bool>(
+            "SELECT EXISTS(SELECT 1 FROM builds WHERE plugin_slug = @pluginSlug)",
+            new { pluginSlug = pluginSlug2 }));
     }
 }
